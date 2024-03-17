@@ -1,0 +1,120 @@
+---
+title: "STATS 101A FINAL PROJECT REAL REAL"
+author: "Darion Phan"
+date: "2024-03-16"
+output: html_document
+---
+
+
+#Part 1, Introduction
+```{r}
+library(tidyverse)
+#data wouldn't load without locale = locale(encoding = 'latin1'), not sure why
+bike_data <- read_csv('SeoulBikeData.csv', locale=locale(encoding="latin1"))
+```
+```{r}
+head(bike_data)
+```
+
+#Part 2, Descriptive Statistics
+```{r}
+colnames(bike_data) <- c('date','rented_bikes','hour', 'temp', 'humid', 'wind_speed', 'visibility', 'dew_point', 'solar_rad', 'rainfall', 'snowfall', 'season', 'holiday', 'functional')
+
+bike_data <- bike_data %>%
+  mutate(functional_as_binary = (functional == 'Yes'),
+         holiday_as_binary = (holiday == 'Holiday'))
+
+variable_means <- colMeans(bike_data[,c(2:11, 15,16)])
+variable_vars <- sapply(bike_data[,c(2:11, 15,16)], var)
+variable_sd <- sapply(bike_data[,c(2:11, 15, 16)], sd)
+variable_min <- sapply(bike_data[,c(2:11, 15, 16)], min)
+variable_max <- sapply(bike_data[,c(2:11, 15, 16)], max)
+
+exploratory_stats_df <- data.frame(
+  mean = variable_means,
+  variance = variable_vars,
+  standard_deviation= variable_sd,
+  minimum = variable_min,
+  maximum = variable_max
+)
+
+View(round(exploratory_stats_df, 4))
+```
+
+# Part 3, Data Summary
+
+```{r}
+more_bike_data <- bike_data %>%
+  mutate(bikes_hour_before = lag(rented_bikes),
+         bikes_log_hour_before = log(bikes_hour_before + 0.0001),
+         bikes_2hrs_before = lag(rented_bikes, n = 2),
+         bikes_3hrs_before = lag(rented_bikes, n = 3),
+         bikes_hour_before_sq = bikes_hour_before^2,
+         bikes_2hrs_before_sq = bikes_2hrs_before^2,
+         bikes_3hrs_before_sq = bikes_3hrs_before^2,
+         change_in_bikes_3_2_1 = log(abs(bikes_2hrs_before - bikes_hour_before) + 10),
+         change_in_bikes_3_2_1_sq = change_in_bikes_3_2_1^2,
+         bikes_last_3hrs_avg = (bikes_hour_before + bikes_2hrs_before + bikes_3hrs_before) / 3,
+         bikes_day_before_same_hour = lag(rented_bikes, n = 24),
+         functional_as_binary = (functional == 'Yes'),
+         sunny_and_working = as.numeric(functional_as_binary) * solar_rad,
+         month_adj = (as.numeric(str_extract(date, '\\d+(?=/\\d{4})'))),
+         day_adj = (as.numeric(str_extract(date, '\\d+'))),
+         year_adj = (as.numeric(str_extract(date, '\\d{4}'))),
+         beforeglow = lead(solar_rad),
+         afterglow = lag(solar_rad),
+         humid_sq = humid^2) %>%
+  group_by(month_adj, day_adj, year_adj) %>%
+  mutate(day_avg = mean(rented_bikes)) %>%
+  group_by(month_adj) %>%
+  mutate(solar_rad_month_avg_factor = mean(solar_rad) * 2 + solar_rad * 3,
+         month_avg_temp_factor = mean(temp) + temp,
+         month_visi = mean(visibility) + log(visibility)) 
+  
+View(more_bike_data)
+
+bike_model_all <- lm(log(rented_bikes + 0.1) ~ hour + temp + humid + bikes_log_hour_before + wind_speed + visibility + dew_point + solar_rad + rainfall + snowfall + season + holiday + functional + bikes_hour_before + bikes_day_before_same_hour + bikes_2hrs_before + bikes_last_3hrs_avg  + bikes_hour_before_sq + bikes_2hrs_before_sq + bikes_3hrs_before_sq + change_in_bikes_3_2_1 +  month_adj + beforeglow + afterglow + humid_sq + day_avg + solar_rad_month_avg_factor + month_avg_temp_factor + month_visi + change_in_bikes_3_2_1_sq + sunny_and_working, data = more_bike_data)
+
+summary(bike_model_all)
+plot(bike_model_all)
+
+step(bike_model_all, direction = 'backward')
+
+bike_model_aic_reduced <- lm(formula = log(rented_bikes + 0.1) ~ hour + temp + humid + 
+    bikes_log_hour_before + visibility + dew_point + solar_rad + 
+    rainfall + season + holiday + functional + bikes_hour_before + 
+    bikes_day_before_same_hour + bikes_2hrs_before + bikes_last_3hrs_avg + 
+    bikes_hour_before_sq + bikes_2hrs_before_sq + change_in_bikes_3_2_1 + 
+    month_adj + beforeglow + afterglow + humid_sq + day_avg + 
+    solar_rad_month_avg_factor + month_avg_temp_factor + change_in_bikes_3_2_1_sq + 
+    sunny_and_working, data = more_bike_data)
+
+summary(bike_model_aic_reduced)
+
+step(bike_model_all, k = log(nrow(more_bike_data)), direction = 'backward')
+
+bike_model_bic_reduced <- lm(formula = log(rented_bikes + 0.1) ~ hour + temp + humid + 
+    bikes_log_hour_before + visibility + rainfall + holiday + 
+    functional + bikes_hour_before + bikes_day_before_same_hour + 
+    bikes_2hrs_before + bikes_hour_before_sq + bikes_2hrs_before_sq + 
+    change_in_bikes_3_2_1 + month_adj + beforeglow + afterglow + 
+    humid_sq + day_avg + solar_rad_month_avg_factor + month_avg_temp_factor + 
+    month_visi + change_in_bikes_3_2_1_sq, data = more_bike_data)
+```
+
+Fitted model, F-test, t-test
+
+```{r}
+summary(bike_model_bic_reduced)
+summary(bike_model_aic_reduced)
+summary(bike_model_all)
+
+anova(bike_model_bic_reduced, bike_model_all)
+anova(bike_model_aic_reduced, bike_model_all)
+```
+
+```{r}
+par(mfrow = c(2,2))
+plot(bike_model_bic_reduced)
+```
+
